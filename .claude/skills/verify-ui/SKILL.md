@@ -1,0 +1,223 @@
+---
+name: verify-ui
+description: Verify the micro:bit flasher UI by driving the real page with Playwright headless Chromium — the browser flasher in docs/, and the VS Code web extension's user flow. Use when a change affects the flasher page, the firmware gallery, hex validation, or the number of steps a student must take. Not for build/toolchain work (use tools/mb.py) or for anything needing a real board — WebUSB device selection cannot be automated.
+---
+
+# Verify the flasher UI with Playwright
+
+Drive the actual page and assert on the live DOM, rather than reasoning about it.
+This is how UI regressions get found for real — a disabled button that should be
+enabled, a gallery that silently fails to load, an error message that never
+appears.
+
+## 1. Install Playwright (once per machine, in a scratch dir)
+
+```bash
+SP=<scratch dir>            # the session scratchpad, NOT the repo
+cd "$SP" && npm init -y >/dev/null
+npm install playwright && npx playwright install chromium
+```
+
+Never install it into the repo: there is no npm build here on purpose, and
+`node_modules/` would be 100 MB of untracked noise.
+
+## 2. Serve the page
+
+The page is static, so any server works. Use the project's own, which also
+stages the firmware the way a Codespace does:
+
+```bash
+python3 tools/mb.py build            # produces build/main.hex
+python3 -u tools/mb.py serve --no-build --port 8099 &
+```
+
+`mb.py serve` assembles `build/site` = `docs/` + `firmware/` + a manifest. To
+test the *published* page instead, point Playwright at
+`https://aiunderstand.github.io/Ada-Embedded-Project-MicroBitV2/`.
+
+## 3. Drive it
+
+```js
+const { chromium } = require('playwright');
+const b = await chromium.launch();
+const p = await b.newPage();
+p.on('console', m => console.log('  [console]', m.text()));
+p.on('pageerror', e => console.log('  [pageerror]', e.message));
+await p.goto('http://localhost:8099/', { waitUntil: 'networkidle' });
+```
+
+Useful assertions:
+
+- `await p.locator('#flash').isDisabled()` — Flash must stay disabled until a
+  valid hex is chosen.
+- `await p.locator('#examples optgroup').allTextContents()` — the gallery groups.
+- `await p.setInputFiles('#file', path)` — exercises hex validation without a board.
+- `await p.locator('#firmware').textContent()` — the accept/reject message.
+
+## 4. What cannot be tested this way
+
+**WebUSB device selection.** `navigator.usb.requestDevice()` needs a real device
+and a user gesture in a browser-native permission dialog; Playwright cannot grant
+it and Chromium headless has no device. So:
+
+- Everything up to and including "Flash becomes enabled" is testable here.
+- The flash itself needs a board and a human.
+
+`navigator.usb` is *absent* in headless Chromium, so the page takes its
+unsupported-browser path. Launch with `chromium.launch({ channel: 'chrome' })`
+against real Chrome if you need `navigator.usb` to exist, and stub
+`navigator.usb.getDevices` with `page.addInitScript` to exercise the connected
+paths.
+
+## 5. The VS Code extension, in a real extension host
+
+`tools/test_extension.mjs` loads the bundle into a mock `vscode` object. That
+catches packaging mistakes, not whether the extension activates in the real web
+worker host or whether its chord resolves. Three rigs, all in the scratchpad:
+
+**test-web — no remote, fastest.** Loads the assembled folder as a development
+extension, straight into the web worker host.
+
+```bash
+cd "$SP" && npm install @vscode/test-web
+python3 tools/mb.py extension --out "$SP/ext"
+npx @vscode/test-web --browser none --quality stable --port 3000 \
+    --extensionDevelopmentPath "$SP/ext" <a small folder with .vscode/tasks.json and build/main.hex>
+```
+
+`chord.js`, next to this file, is the chord check for test-web: it waits
+for the status bar to show **Flash micro:bit**, presses the chord (argument;
+`none` for a control run), opens the **micro:bit** output channel through the
+*Show connection status* command and reads the log. "Asking you to choose
+the micro:bit" appears only when the flash command ran, so that line after
+Control+F5, and not in the control run, is the proof that the flasher's chord
+reaches it in the browser. It needs real
+Chrome (`channel: "chrome"`): headless Chromium has no `navigator.usb`, the
+context stays false, and the chord falls through to the build task.
+
+**serve-web — a real VS Code Server as the remote, the way a Codespace is.**
+It has no development-extension option, so install into the server with the
+remote CLI from the integrated terminal (`code --install-extension`) — knowing
+that this delivery does *not* work in a Codespace (#144513); here the worker is
+same-origin, so it does, and it is the only way to get the extension into this
+rig. Do not try *Install Extension from Location* with `mb.py serve`: the page
+policy is `connect-src … https:`, and `http://localhost` is refused.
+
+```bash
+CODE="/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code"
+mkdir -p "$SP/serve-web-data/data/User" && echo '{ "security.workspace.trust.enabled": false,
+  "workbench.startupEditor": "none" }' > "$SP/serve-web-data/data/User/settings.json"
+"$CODE" serve-web --without-connection-token --accept-server-license-terms --port 8100 \
+    --server-data-dir "$SP/serve-web-data" --cli-data-dir "$SP/cli-data" --default-folder <repo>
+```
+
+Drive either with your own Playwright: wait for `.monaco-workbench`, allow
+`onStartupFinished` ~15 s, then
+
+- `.statusbar-item` texts should include **Flash micro:bit** — activation proof;
+- `page.keyboard.press('Control+Alt+F')` then read
+  `.notifications-toasts .notification-list-item`: with no board the correct
+  result is *Failed to execute 'requestDevice' on 'USB': No device selected*,
+  reached *after* the Build task ran (check `build/main.hex`'s mtime moved) —
+  the chord reached the command, the build ran, the command reached WebUSB;
+- *command 'microbit.flash' not found* means the manifest loaded and the code
+  did not; the **Extension Host (Worker)** output channel says why.
+
+In the serve-web terminal, the first keystrokes of a fresh terminal are eaten
+while the shell starts — send a throwaway Enter, wait, then type — and read
+command output from a file you redirected to, not from xterm rows.
+
+**Is a chord already taken?** Run `Preferences: Open Default Keyboard Shortcuts
+(JSON)` in the instance, select all, copy, and read the clipboard from the page
+(grant `clipboard-read`). VS Code spells modifiers in the order ctrl, shift,
+alt, cmd — `alt+cmd+f`, never `cmd+alt+f`. The platform follows the user agent,
+so a `newContext({ userAgent })` spoofing Windows or Linux yields those tables
+from the same server.
+
+**test-electron — desktop VS Code, where the picker does not exist.** Desktop
+VS Code loads a browser-only extension into its own web worker host: `uiKind`
+there is Desktop, `navigator.usb` exists (Electron), and
+`workbench.experimental.requestUsbDevice` is not registered (1.138.0). That is
+the host a student on their own PC has, since the flasher is a workspace
+recommendation. `@vscode/test-electron` downloads a VS Code into the
+scratchpad and runs a throwaway Node extension's `run()` in the same window;
+from there `executeCommand('microbit.flash')` crosses to the worker host, and
+`vscode.tasks.onDidStartTask` / `onDidEndTaskProcess` show what it did (on the
+desktop: the *Build & Flash* task, exit 0, `build/main.hex` rewritten).
+
+```bash
+cd "$SP" && npm install @vscode/test-electron
+python3 tools/mb.py extension --out "$SP/flasher"
+```
+
+```js
+const { runTests } = require('@vscode/test-electron');
+await runTests({
+  extensionDevelopmentPath: [tester, `${SP}/flasher`],   // both load; the flasher lands in the worker host
+  extensionTestsPath: `${tester}/test.js`,               // exports.run = async () => { ... executeCommand('microbit.flash') ... }
+  launchArgs: [repo, '--disable-extensions', '--disable-workspace-trust', '--user-data-dir', shortDir],
+});
+```
+
+Two things bite when this is started from the editor's own terminal. The
+environment carries `ELECTRON_RUN_AS_NODE=1`, which makes the downloaded Code
+run as plain Node and die with *Cannot find module <repo>*: run it under
+`env -u ELECTRON_RUN_AS_NODE`, and drop the `VSCODE_*` variables with it. And
+macOS limits a socket path to 104 bytes, so a user-data dir inside the
+scratchpad fails with `listen EINVAL … main.sock`; point `--user-data-dir` at a
+symlink under `$TMPDIR` to it instead. `getExtension()` from the Node host does
+not see the worker-hosted flasher; `getCommands()` does, and that is the check.
+
+What none of these can show: a Codespace's routing and content-security policy.
+That needs a Codespace and the published extension, and the diagnostic order
+that works there is *Show Running Extensions* → the **Extension Host (Worker)**
+channel → the Network tab filtered on `extension.js` → the Console for
+`Content Security Policy`.
+
+## 6. The Serial view's own script
+
+The view is HTML built inside `extension.js`; its script has only ever run in
+a student's browser unless you run it yourself. Extract it through the mock
+host (resolve the view provider with a fake `WebviewView`, keep what it sets
+as `html`), write it to a file, and drive it:
+
+```js
+await page.addInitScript(() => { window.__posted = []; window.acquireVsCodeApi = () => ({ postMessage: (m) => window.__posted.push(m) }); });
+await page.goto('file://' + path);            // a navigation: setContent() skips init scripts
+await page.evaluate(() => window.postMessage({ type: 'status', connected: true }, '*'));
+await page.fill('#in', 'abc'); await page.press('#in', 'Enter');   // must post {type:'send'}, must NOT navigate
+```
+
+Check `#status`, `#out`, `window.__posted`, and `pageerror`. Enter navigating
+the page away means the script never attached its handlers — the symptom of a
+syntax error in it, which is what an interpreted `\n` in the template produces.
+
+## 7. The Ada language server, headless
+
+`als_probe.py`, next to this file, drives the Ada extension's own server
+binary over stdio like VS Code would: initialize on the repository, open
+`Code/src/main.adb`, collect diagnostics, ask for the definition of
+`MicroBit`. Two arguments: the `ada` settings as JSON (`{}` means the
+repository's `.als.json`), and the PATH to run with. A PATH without `alr`
+and the toolchain is what a Windows student has:
+
+```bash
+python3 .claude/skills/verify-ui/als_probe.py '{}' /usr/bin:/bin:/usr/sbin:/sbin
+```
+
+Red lines ("cannot find name 'MicroBit'", "could not be loaded") mean the
+server has no toolchain; a definition in `microbit.ads` means it has. Run
+it twice, about a minute apart: the server writes `.als-alire` lock files
+and a second instance within seconds waits on the first.
+
+## 8. Counting the steps
+
+To judge whether a flow is too cumbersome, count what a student actually does —
+clicks, keystrokes, and dialogs — rather than guessing. Record them, then compare
+against the alternative before changing anything.
+
+## Related
+
+`tools/test_flasher.mjs` unit-tests the same page logic headlessly with a mocked
+connection, and runs in CI. Playwright is for the things that need a real
+browser: layout, real DOM events, real file inputs, real module loading.

@@ -1,0 +1,5 @@
+{
+  "projectFile": "Code/itrs.gpr",
+  "gprConfigurationFile": "build/als.cgpr",
+  "alireDiagnostics": false
+}

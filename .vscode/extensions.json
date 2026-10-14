@@ -1,0 +1,9 @@
+{
+    "recommendations": [
+        "AIUnderstand.microbit-flasher",
+        "AIUnderstand.microbit-companion",
+        "AdaCore.ada",
+        "ms-vscode.vscode-serial-monitor",
+        "marus25.cortex-debug"
+    ]
+}

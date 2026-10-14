@@ -1,0 +1,463 @@
+# CLAUDE.md
+
+Working notes for this repository. Most of what follows was learned by something
+breaking; the reasons are recorded so they are not rediscovered the hard way.
+
+## What this is
+
+A **GitHub template** that Bachelor CS students instantiate to write Ada for the
+BBC micro:bit v2 (nRF52833, Cortex-M4F). Students click *Use this template*, get
+their own repository, and work either in a browser Codespace or on their own
+machine.
+
+It is a *teaching* repository maintained by one lecturer. Prefer the boring,
+low-maintenance option over the clever one.
+
+```
+Code/src/main.adb                 the student's program -- the file they edit
+Code/itrs.gpr                     the template project
+Code/libs/Ada_Drivers_Library     git submodule -> aiunderstand/Ada_Drivers_Library (a fork we own)
+tools/mb.py                       the one driver: build / flash / prove / serve / setup / extension / companion
+docs/                             the GitHub Pages flasher (index.html + app.mjs + vendor/)
+extension/                        VS Code *web* extension: flashing from a Codespace (runs in the browser)
+extension/gdbserver.js            ... and a GDB remote-protocol server, so F5 works there too
+companion/                        its Codespace-side helper: installs the flasher into the browser, relays gdb to it
+setup/                            per-path student guides
+```
+
+## Everything goes through `tools/mb.py`
+
+`mb.py` at the root is the front door (`python mb.py setup` is the one command
+students are told); it runs `tools/mb.py`, where everything lives. `setup`
+asks nothing (`--ask` to be asked): it installs what is missing per platform,
+skips USB things in a container (the devcontainer's `postCreateCommand` runs
+it too), and notes WSL, where USB needs usbipd on the Windows side.
+
+```shell
+python3 tools/mb.py setup          # make a fresh machine ready (idempotent)
+python3 tools/mb.py doctor         # is the toolchain usable?
+python3 tools/mb.py list           # every buildable project (47 today)
+python3 tools/mb.py build [--use ID | --use-dir DIR | --all]
+python3 tools/mb.py flash | erase
+python3 tools/mb.py prove --all-spark --mode=prove --level=1
+python3 tools/mb.py serve          # serve the flasher with the current build
+python3 tools/mb.py extension [--out DIR] [--version V]   # the web extension, as a folder
+python3 tools/mb.py gallery --out site/firmware
+```
+
+Builds run `alr exec -- gprbuild -P <gpr> --root-dir=. --relocate-build-tree=build/obj`
+from the repository root. That is what lets any project build without
+changing the VS Code folder, and keeps object files out of the submodule.
+Firmware is always staged at `build/main.elf/.hex/.bin`.
+
+**Alire supplies the environment.** Nothing here requires editing `PATH`.
+
+## Pinned versions, and why
+
+| | | |
+|---|---|---|
+| `gnat_arm_elf` | **15.1.2** | **Not 16.1.0** — it fails to link with `.eh_frame LMA overlaps .data`, reproduced with plain `gprbuild`, so it is the bundled linker script, not Alire. |
+| `gprbuild` | **25.0.1** | **Not 22.0.1** — that has *no aarch64 build at all*, so it breaks Apple Silicon and both arm64 CI legs. |
+| `gnatprove` | **15.1.0** | Matches the compiler generation; has all five platform origins including linux/aarch64. |
+| `alr` | **2.1.1** | SHA-256 of each platform archive is pinned in `mb.py`; Alire publishes no checksums. |
+
+Alire *crate* versions do not match GNAT-FSF *tarball* names — crate
+`gnat_arm_elf 15.1.2` lives in release `gnat-15.1.0-2`. Never hardcode tarball
+URLs; let Alire resolve them.
+
+## Testing
+
+```shell
+python3 tools/mb.py build --all      # every project PASS, 0 FAIL, 0 XPASS
+python3 tools/mb.py prove --all-spark --mode=prove --level=1
+node tools/test_flasher.mjs          # the browser flasher
+node tools/test_extension.mjs        # the VS Code extension
+node tools/test_gdbserver.mjs        # the gdb server, on a fake board
+node tools/test_companion.mjs        # the companion's gdb relay, over a real socket
+python3 tools/test_mb.py             # mb.py's probe verdicts, and capture() in UTF-8
+```
+
+**Prove that a new test can fail.** Break the thing deliberately, watch the
+suite go red, restore. Several assertions here were written before anyone knew
+whether they could fail — and `gnatprove` needs `--checks-as-errors=on`, because
+it reports an unproved check and still exits 0.
+
+`tools/known_failures.txt` uses XFAIL/XPASS: a quarantined project that starts
+passing **fails** the run, so the list can only shrink. It is currently empty.
+
+## The submodule is a fork we own
+
+Fixes to examples go to `aiunderstand/Ada_Drivers_Library` first, then the
+pointer is bumped here. Two repositories, two PRs. Never edit the submodule
+in place and forget to push it — the parent will point at a commit that exists
+only locally.
+
+Batch fork work: it is the slowest part of any change.
+
+## Traps that have actually bitten
+
+**Filename case.** GNAT expects all-lowercase filenames. Four ADL files carried a
+capital `RT` (`microbit-displayRT.ads`), which macOS and Windows resolve and
+**Linux does not** — so every display example failed in the devcontainer,
+Codespaces and CI. Caught by the CI matrix on its first run.
+
+**Windows long paths.** The submodule carries a bundled Unity project with
+171-character paths. Without `git config --global core.longpaths true` the clone
+truncates and looks like a corrupt download.
+
+**Windows resolves a relative path against the current directory before it
+collapses the `..`, and refuses the result past 260 characters.** On Windows
+gprbuild hands ld the runtime's linker-script directory *relative* to the
+object directory (`-L..\..\..\..\..\..\..\..\..\..\..\appdata\...\ld\`, then
+`-T common-ROM.ld`); with the build tree relocated under `build/obj` an
+example's object directory is 116 characters from `C:\Users\huber\itrs26`,
+eleven levels below the runtime, and the concatenation is 269. So
+`ravenscar/motor_drive_dfr0548` failed with *cannot open linker script file
+common-ROM.ld* while the template, five levels up and 171 long, linked --
+on the same PC, the same runtime, the same script. `mb.py` now adds the
+runtime's `ld` directory as an absolute `-L` ahead of the runtime's own, so
+ld opens the script by its full name, which is never concatenated. The
+matrix job builds the deepest example on every OS to keep it that way.
+
+**The Ada extension finds the toolchain through `alr` on PATH, which setup
+never edits.** So on a Windows PC the language server reported *the project
+file has errors and could not be loaded*, put red under every name from the
+drivers library, and had no Go to Definition, while the same clone worked on
+a Mac that happens to have `alr` on PATH. The server reads
+`ada.gprConfigurationFile` (a `.cgpr` with the compiler driver and runtime
+directory spelled out), so `mb.py als` and `setup` write `build/als.cgpr`
+with `gprconfig` for the project's runtime and `.als.json` names it, with
+`alireDiagnostics` off because "alr not found in PATH" is then a fact and
+not a problem. Reproduced headless with the server binary from the Ada
+extension, PATH stripped: red lines without the file, a definition in
+`microbit.ads` with it (`tools/test_mb.py` checks the plumbing; the probe
+is `.claude/skills/verify-ui/als_probe.py`). The container writes it in
+`postCreateCommand`, since `build/` is fresh there too.
+
+**Windows on ARM is unsupported.** Alire publishes no ARM64 Windows build, and
+the x64 one crashes on startup (`0xC0000005`). `mb.py setup` detects and says so.
+
+**`$ada` is not a problem matcher.** The Ada extension contributes
+`ada-error` / `ada-warning` / `ada-info`. Using `$ada` leaves the Problems panel
+empty and toasts an error on every build.
+
+**One boolean hid three different failures.** `probe_present()` returned False
+whether pyocd was missing, the udev rule was absent, or no board was plugged in,
+and every one of them printed "no debug probe is visible" plus an explanation
+about Codespaces -- to Windows students sitting in front of a plugged-in board.
+It reports a state now, and each state gets its own sentence. The Codespaces
+line is printed only when actually in a container. Round two: a pyocd that
+*crashed* was still "no micro:bit is visible", because any non-zero exit
+without a permission word counted as no board -- and only our venv copy was
+ever asked, while the student's own `pyocd list`, on PATH, showed the board.
+`probe_check()` now asks every pyocd on the machine in turn, flashes with the
+first that sees the board, and every verdict names the pyocd it is about and
+quotes what it said, so the next report carries the evidence. Round three,
+found by that evidence: `setup` said *cannot enumerate USB* and quoted the
+board's own row. pyocd 0.45's `list` prints a check mark next to the target;
+captured into a pipe on Windows, Python's stdout is cp1252, the check mark
+does not encode, and pyocd died mid-row with exit 1 after printing the board
+-- in a terminal the console takes UTF-8 and it worked. `mb.py` runs every
+child in UTF-8 mode (`PYTHONUTF8=1`), decodes what it captures as UTF-8, and
+treats a listed probe as proof of enumeration whatever the exit code.
+`tools/test_mb.py` runs in the Windows matrix leg, where the pipe is real.
+
+**Nothing can open the board on Linux without the udev rule.** Not pyocd, and
+not the browser flasher either: WebUSB's `open()` fails with a security error
+*after* the student picks the device from the popup, which reads as the page
+being broken. `setup` offers to install the rule. It is a host thing, so it is
+skipped in a container.
+
+**Verify an install, never trust its exit code.** `alr toolchain --select`
+returned 0 on a Windows machine that ended up with no compiler and no gprbuild.
+`setup` now probes both through `alr exec` afterwards, retries the select once,
+and on a second failure prints the exact command with the *full path* to alr,
+which is not on PATH. pyocd gets the same treatment: `pyocd list` with nothing
+plugged in loads the whole USB stack and reports zero probes, so a broken
+install (usually libusb) is caught at setup, not at the first flash.
+
+**GitHub says "not found" for a private repository.** With a stored credential
+that does not cover the repository, `git ls-remote` reports *repository not
+found*; with no credential at all it reports *could not read Username*. Both
+mean "sign in", and `get.py` routes both there; only a network error is fatal.
+`GIT_TERMINAL_PROMPT=0` makes that probe fail instantly instead of stalling on
+a username prompt, while still letting a helper with its own window open it.
+
+**`docs/get.py` is the step before everything else.** It is fetched on its own,
+before the repository exists, so it must stay standalone -- no imports from the
+repo. It installs git if needed, clones with `--recurse-submodules`, sets
+`core.longpaths` first on Windows, and hands over to `mb.py setup`. Keep every
+real decision in `mb.py`; this file only gets the student to it.
+
+**A VS Code task does not have the terminal's PATH.** Tasks here are
+`"type": "process"`, so they run with the editor's environment and no shell.
+Started from a dock or an applications menu, VS Code never reads `~/.bashrc`,
+and on a Wayland session not `~/.profile` either -- so `~/.local/bin` and
+friends are absent, and a student saw `alr not found` from the build task while
+the same command worked in the integrated terminal. `alr_path()` therefore
+searches the places Alire actually installs itself (`~/.alire/bin`,
+`~/.local/share/alire`, ...), and `setup` records the absolute path it used in
+`~/.local/share/ada-microbit/alr-path`. Nothing we test could have caught this:
+CI puts alr on `PATH` itself, the devcontainer installs it to `/usr/local/bin`,
+and a fresh VM has no Alire, so `setup` installs it where we already looked.
+
+**Ubuntu will not `pip install --user`.** PEP 668 makes 23.04 and later refuse
+it (`externally-managed-environment`), and Ubuntu ships `python3` without pip
+anyway, so the old pyocd step failed on exactly the machines that needed it and
+reported it as a note. It installs into a venv under
+`~/.local/share/ada-microbit/venv` now, which also gives an absolute path the
+task can run without PATH. `python3-venv` is a separate apt package; when it is
+missing, say so and name the command.
+
+**A captured prompt is an invisible hang.** Windows students reported setup
+freezing with no output. Alire asks whether to install MSYS2 at *startup*, and
+`capture()` hid the question while leaving stdin on the terminal, so alr waited
+for an answer nobody could see it wanting. Two halves to the fix: `capture()`
+closes stdin, so a prompting command fails instead of blocking; and
+`skip_msys2()` runs before the *first* alr call rather than in the middle of
+`setup`, which had left `doctor`, `build` and Ctrl+Shift+B exposed. MSYS2 is
+Alire's system package manager -- this project cross-compiles and depends only
+on binary toolchain crates, so it needs nothing from it, which the Windows
+matrix leg proves by building with the flag set from its first command.
+
+**`msys2.do_not_install` does not disarm an MSYS2 that is already there.**
+Alire 2.x (`Platforms.Current.Setup_Msys2`, read in its source) consults the
+setting only when `%LOCALAPPDATA%\alire\cache\msys64` is *missing*; when the
+folder exists -- left by an older setup, or half installed because it was the
+step that hung -- every alr command puts its `usr/bin` in front of PATH, and
+its pacman makes MSYS2 the "distribution". A Windows PC then had the toolchain
+installed and selected while every `alr exec` in the repository failed, and
+setup said *not usable after two tries* and advised re-running the select,
+which only re-marks what is there. The same PC had needed that folder
+deleted by hand for earlier install problems; whether it caused this one is
+not yet confirmed, which is why the verdict now quotes alr. So
+setup checks the two halves apart (`alr toolchain` lists the pair; `alr exec`
+runs it here), quotes alr when the second fails, names the leftover MSYS2
+when there is one, and `setup --remove-msys2` deletes it. The same probe
+also used to download gnatprove silently: `alire.toml` pins it, so a fresh
+clone's first `alr exec` fetches it, and that first run is now shown.
+
+**Alire chatter pollutes version probes.** `alr exec -- gprbuild --version` is
+preceded by `Note: Synchronizing workspace...` and dependency-solve lines that
+*contain digits*. `alr -q` suppresses the command's own output too, so `mb.py`
+filters explicitly.
+
+**Alire settings are per user.** The container is built as root and runs as
+`vscode`; without a shared `ALIRE_SETTINGS_DIR` the toolchain selection made at
+build time is invisible at runtime.
+
+**Delete inside the layer that created the files.** The toolchain image strips 66
+unused runtimes in the *same* `RUN` as the install. In a later layer the files
+remain and the pull is unchanged — the image merely *looks* smaller.
+
+**`git status` always exits 0.** Cleanliness guards must be
+`test -z "$(git status --porcelain -uall)"`.
+
+**A template literal interprets `\n`.** The Serial view's HTML is a template
+literal in `extension.js`; a `"\n"` meant for the view's own script arrived as
+a real line break inside a string, the script died with a syntax error, and the
+view sat at "Not connected" while the extension posted into it. Write `\\n`
+there, and run the view's script for real: `tools/test_extension.mjs` parses
+it, and the `verify-ui` skill drives the HTML in Chromium.
+
+**Neither extension may do anything outside a copy of this template.** Both
+activated on `onStartupFinished`, so both loaded in *every* workspace the
+student ever opened. The flasher's `rememberBoard()` then wrote
+`<workspaceFolders[0]>/build/board.txt` -- guarded only by "is a folder
+open" -- and `settleSelection()` calls it even when nothing is chosen, so it
+wrote a lone newline and **created `build/` to hold it** in six unrelated
+repositories on one laptop; in one of them a later `git add .` committed and
+pushed the junk file. Meanwhile the companion spawned
+`python3 tools/mb.py boards --watch` in that same folder, where no `mb.py`
+exists, and `BRIDGE_RESTART_MS` respawned the doomed child every three
+seconds for as long as the window was open (38 spawns in 250 ms once the
+delay is removed -- that is the test). The fix is one marker, `tools/mb.py`,
+tested at three depths: `workspaceContains:tools/mb.py` in both manifests, so
+in an unrelated repository neither extension is loaded; `microbitRoot()` in
+both, because a command, the Serial view or a cortex-debug session still
+activates them anywhere -- and it returns *the folder that holds the marker*,
+not folder zero, which is also what makes a multi-root workspace work; and
+`rememberBoard()` bailing on `!selectedId`, since an empty choice is not one
+(`chosen_board()` already ignores an id pyocd cannot see, so leaving a stale
+id is the safe direction). The bridge now also gives up after five exits too
+quick to have been a real run, rather than trusting the marker alone.
+
+**DAPLink gives each serial byte to one reader.** The board's UART has one
+buffer, drained alike by the USB serial port (pyserial, Serial Monitor,
+`screen`) and by the CMSIS-DAP vendor command `0x83` that WebUSB consoles
+poll; whoever asks first gets the byte. The port wins most of them, so the
+serial monitor looks fine while the browser page shows a scatter of the right
+characters (`ACC;X,-95;Y,-41` came out as `YC;C2C2C;C9X`). The vendored
+library knows: before a flash it runs a stub on the target that pushes 2 KB
+through the UART to fill DAPLink's USB-serial buffer (`cdcSaturated`), after
+which that path takes nothing -- unless a program on the host is draining the
+port, which is why the page's first lines after a flash were whole. From
+`2755481` the desktop flasher had the companion's bridge open the port at
+activation and keep it, Serial view on screen or not, so the GitHub Pages
+flasher's output was scrambled whenever VS Code was open on the project. A
+port merely held open is enough: the OS keeps reading it. The port now
+follows the view (`syncPort()` in `extension.js`), and one the bridge closed
+by itself is not reopened until something changes, or two readers would take
+turns at it forever. Reproduced on a board with the
+page's own bundle over node-usb's `WebUSB`: 28/28 lines whole alone; with a
+pyserial reader on the port, 65 bytes in 3 s and no whole line, while the
+reader got 657 bytes, a few characters short.
+
+**Check a new keybinding against VS Code's defaults, per platform.** The
+extension's first chord, `cmd+alt+f`, is *Replace* on a Mac; VS Code writes it
+as `alt+cmd+f` (modifier order ctrl, shift, alt, cmd), so a grep for the chord
+as you typed it finds nothing. Read the real tables out of a running VS Code:
+`Preferences: Open Default Keyboard Shortcuts (JSON)`, or the `verify-ui` skill's
+test-web recipe with a spoofed user agent for Windows and Linux. The flasher's
+chord is `ctrl+f5`, VS Code's "run without debugging", on purpose and on both
+paths (a flash is the board's "run"); Ctrl+Shift+B stays the Build task.
+`tools/test_extension.mjs` allows a default chord only when it is listed there
+as deliberate, with the reason.
+
+**Never install the extension into the Codespace, and only the Marketplace can
+deliver it.** Installed into the Codespace, it cannot run in the browser client:
+the web worker host lives on another origin (`assets.github.dev`), its fetch of
+`extension.js` bypasses GitHub's routing for the page and gets a 404, and the
+worker logs `Activating extension … failed: Error:` with nothing after it
+(HTTP/2 has no status text) — microsoft/vscode **#144513**, open since 2022.
+Served from anywhere else (GitHub Pages, *Install Extension from Location*),
+the page's `connect-src` blocks it: the Codespaces allow-list has the
+Marketplace CDNs and not `github.io`. A day went into the attach-time `.vsix`
+install — hot-swap rules, a one-year cache, `__metadata`, `.obsolete`, file
+modes — all real, all beside the point. `code serve-web` shows neither: its
+worker is same-origin and its policy allows any `https:`.
+
+**Desktop VS Code runs the web extension too, with `navigator.usb` and no
+picker.** The flasher is a workspace recommendation, so a student on their own
+PC installs it into desktop VS Code, which loads a browser-only extension in
+its own web worker host. Electron gives that worker a `navigator.usb` that
+answers `getDevices()` with nothing, so "is there WebUSB" said yes -- and the
+next call, `workbench.experimental.requestUsbDevice`, is registered by the
+browser workbench only: `command ... not found`, on a Windows PC with the board
+plugged in and pyocd working. `uiKind` is the test, not `navigator.usb`; on the
+desktop the flash runs the *Build & Flash* task instead. The chord is
+Ctrl+F5 on every path -- VS Code's "run without debugging" chord, which is what
+a flash is on a board -- bound by the flasher on both paths; Ctrl+Shift+B is
+the Build task and F5 builds, flashes and debugs. `tools/test_extension.mjs` loads the bundle as that
+worker, `uiKind` Desktop and `navigator.usb` present.
+
+**`vscode.tasks.executeTask` is NotSupported in the web worker host.** The
+worker's `ExtHostTask` only accepts `CustomExecution` tasks; a shell or process
+task like "Build" throws `NotSupported` before anything runs. Use
+`workbench.action.tasks.runTask` (any host, runs on the remote) and wait for
+`tasks.onDidEndTaskProcess` by task name. `@vscode/test-web` did not show this,
+because without a remote `fetchTasks()` returns nothing and the build is
+skipped; `code serve-web` did.
+
+## Codespaces
+
+A Codespace has **no USB**. Five consequences:
+
+1. `mb.py flash` cannot work there; it detects this and says so.
+2. Flashing goes through the **VS Code web extension** in `extension/`. It is a
+   *web* extension, so VS Code loads it into the browser's extension host — on
+   the student's machine, where the board is — and reaches `navigator.usb` there.
+   Device authorisation uses `workbench.experimental.requestUsbDevice`, filtered
+   to vendor `0x0d28`.
+3. A **VS Code webview cannot do this**: webview iframes are not granted
+   `allow="usb"`. Rendering-only integrations work in a webview; device access
+   does not. The serial console *is* a webview view — the extension holds the
+   device and the view only shows and asks. On a desktop this host has no
+   USB at all, so the view's boards and serial come from the **companion**,
+   which is a recommendation too and runs there on the student's machine:
+   it spawns `mb.py boards --watch` (`tools/serial_bridge.py`, pyserial in
+   setup's venv; JSON lines: the board list whenever it changes, polled once
+   a second, serial data, port state; open/close/send on stdin) and relays
+   each event to the flasher as a command (`microbit.boards.update`,
+   `microbit.serial.received`, `microbit.boards.state`); the view's requests
+   go back through `microbit.companion.serial`. A board is told from a v1 by
+   the board id in its USB serial number (9903-9906 = v2, 9900/9901 = v1),
+   the same string pyocd calls the unique id, so the view's choice
+   (`build/board.txt`) is what `mb.py flash -u` flashes. **Show serial** is
+   not cosmetic: the library polls DAPLink only while a `serialdata` listener
+   exists, so the listener comes and goes; the bridge closes the port, and
+   holds it only while the view is on screen (see the DAPLink trap). In the
+   browser the list is `navigator.usb.getDevices()` kept fresh by WebUSB's
+   connect/disconnect events, and the picker adds a board to it. Microsoft's
+   Serial Monitor remains a recommended alternative; `mb.py setup` installs
+   every recommendation through the `code` command on a desktop.
+
+4. The extension must be **installed in the browser, from the Marketplace** —
+   Never listed in `devcontainer.json`, which installs into the container.
+   Nothing in a repository can put it into a student's browser -- except an
+   extension already running: `companion/` is a plain Node extension, listed
+   in `devcontainer.json`, that on startup runs
+   `workbench.extensions.installExtension` for the flasher, and the workbench
+   installs a web-only extension in the browser (the same path as clicking
+   Install). `.vscode/extensions.json` recommends the flasher as well.
+   Settings Sync is off by default in the Codespaces web client, so without
+   the companion the recommendation prompt is the floor. The USB picker only
+   appears within a few
+   seconds of a user gesture, so `cmdFlash` asks for the device *before* it
+   builds, and Connect/Disconnect/Flash are native view-header buttons rather
+   than buttons inside the webview.
+
+   `AIUnderstand.microbit-flasher` — never into the Codespace (see the trap
+   above). `setup/extensions.md` covers building, testing and publishing both
+   extensions; `setup/debugging.md` is the student-facing F5 guide.
+
+5. **F5 debugs through the browser.** Cortex-Debug (installed in the
+   container) starts `arm-eabi-gdb` there and connects it to the companion's
+   loopback port (3333 when free; a reloaded tab leaves the old extension
+   host holding it for minutes, so any free port otherwise, and the launch
+   rewrite carries the real one). Every gdb packet is forwarded, as one
+   cross-host `executeCommand`, to the flasher, whose `GdbServer`
+   (`extension/gdbserver.js`) answers it over the board's USB connection.
+   The relay sits at the *packet* boundary on purpose: one round trip per
+   gdb packet, with the dozens of SWD transfers each needs staying in the
+   browser. pyocd in the container with the browser as a remote probe would
+   pay that round trip per SWD transfer, 50-100 times per stop.
+
+   The one launch configuration says `pyocd`; the companion rewrites it to
+   `external` when the UI is a browser, so locals and Codespaces share it.
+   Breakpoints are FPB comparators — six on this Cortex-M4, and `Z0` is
+   served as hardware too, the code being in flash. Single-steps mask
+   interrupts (`C_MASKINTS`), or Ravenscar's timer drags every step into the
+   runtime. gdb's `load` is served through the library's own `flash()`, which
+   ends by resetting the board to *run*, so the server halts it again. A
+   target description is served because without one gdb assumes FPA
+   registers in the `g` packet. No user gesture reaches an *attach*, but F5
+   itself is one: the flasher registers a `DebugConfigurationProvider` for
+   `cortex-debug` and asks for the device in `resolveDebugConfiguration`,
+   which VS Code runs before the build, inside the gesture window -- the same
+   trick as Ctrl+F5 in the browser. The attach's own error remains for when that did not
+   happen (picker dismissed, flasher not yet active).
+   The relay detaches the browser *before* it drains its packet queue: a
+   pending `continue` ends only when the server detaches, so the other order
+   deadlocked and refused every later gdb as "a second connection". And the
+   FPB's NUM_CODE is split across bits 14:12 and 7:4 -- decoding it from the
+   wrong bits went unnoticed on silicon because this chip's high bits are 0.
+
+`python3 tools/mb.py extension` assembles the publishable folder (bundling the
+vendored library into `extension.js`); `ada.yml` proves it packages with `vsce`
+on every push, and `publish-extension.yml` builds both `.vsix` files as
+artifacts for manual upload. **Do not add node/npm to the container image**
+for any of this; the runners have node, the container does not need it.
+
+Port forwarding (`mb.py serve`) exists and works locally, but was unreliable in a
+real Codespace. Keep it as a fallback, not the documented path.
+
+## CI
+
+One workflow, `ada.yml`. Only the `build` job runs in student repositories —
+everything else is gated on `github.repository`, because a template instance is
+**not a fork**, so `schedule:` crons are not auto-disabled and macOS minutes bill
+at 10×.
+
+`examples` runs in the prebuilt toolchain image. `build`, `matrix` and `prove`
+deliberately do not: `build` must never depend on the registry, `matrix` exists
+to prove the *native* install still works, and `prove` needs gnatprove, which is
+an Alire crate rather than a toolchain component.
+
+## Conventions
+
+- Comments explain **why**, not what. Especially where the obvious approach was
+  tried and failed.
+- No committed build artifacts. `build/` and `__pycache__/` are ignored.
+- Student-facing text should name the actual mistake ("use `main.hex`, not
+  `main`, which is an ELF"), not just report failure.
