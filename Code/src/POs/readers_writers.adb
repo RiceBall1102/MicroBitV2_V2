@@ -1,8 +1,11 @@
 with arms_and_legs;
+with System;
 
 package body readers_writers is
 
    protected control is
+      pragma Priority (System.Default_Priority + 4); --ceiling priority
+
       entry Start_Read;
       procedure stop_Read;
       entry Start_Write;
@@ -10,13 +13,13 @@ package body readers_writers is
       procedure Read_Value (Value : out Arms_And_Legs.Directions);
       procedure Write_Value (Value : Arms_And_Legs.Directions);
    private
-      readers : Natural := 0;
-      writers : Boolean := False;
+      readers           : Natural := 0;
+      writers           : Boolean := False;
       Current_Direction : Arms_And_Legs.Directions := Arms_And_Legs.Forward;
    end control;
-   
+
    procedure Read (Value : out Arms_And_Legs.Directions) is
-   begin 
+   begin
       control.Start_Read;
       control.Read_Value (Value);
       control.stop_Read;
@@ -34,7 +37,7 @@ package body readers_writers is
       begin
          Value := Current_Direction;
       end Read_Value;
-   procedure Write_Value (Value : Arms_And_Legs.Directions) is
+      procedure Write_Value (Value : Arms_And_Legs.Directions) is
       begin
          Current_Direction := Value;
       end Write_Value;
@@ -55,7 +58,5 @@ package body readers_writers is
       begin
          Writers := False;
       end stop_Write;
-   end control;   
+   end control;
 end readers_writers;
-
-
