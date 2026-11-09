@@ -28,24 +28,25 @@ package body Brain is
         Check_Distance (Eyes_And_Ears.Left_Distance);
    begin
       if Front_Left_Collision and Front_Right_Collision then
-         if not Left_Collision and Right_Collision then
-            Direction := Arms_And_Legs.Rotate_Left;
-         elsif not Right_Collision and Left_Collision then
-            Direction := Arms_And_Legs.Rotate_Right;
-         elsif not Left_Collision and not Right_Collision then
-            Direction := Arms_And_Legs.Rotate_Right;
-         else
-            -- Boxed in
+         if Left_Collision and Right_Collision then
             Direction := Arms_And_Legs.Backward;
+         elsif Left_Collision then
+            Direction := Arms_And_Legs.Rotate_Right;
+         elsif Right_Collision then
+            Direction := Arms_And_Legs.Rotate_Left;
+         else
+            Direction := Arms_And_Legs.Rotate_Right;
          end if;
-      elsif Front_Right_Collision then
-         Direction := Arms_And_Legs.Rotate_Left;
+      elsif Left_Collision and Right_Collision then
+      Direction := Arms_And_Legs.Forward;
       elsif Front_Left_Collision then
          Direction := Arms_And_Legs.Rotate_Right;
-      elsif Right_Collision then
-         Direction := Arms_And_Legs.Left;
+      elsif Front_Right_Collision then
+         Direction := Arms_And_Legs.Rotate_Left;
       elsif Left_Collision then
          Direction := Arms_And_Legs.Right;
+      elsif Right_Collision then
+         Direction := Arms_And_Legs.Left;
       else
          Direction := Arms_And_Legs.Forward;
       end if;
