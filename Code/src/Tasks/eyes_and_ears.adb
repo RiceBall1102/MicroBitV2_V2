@@ -2,6 +2,7 @@ with MicroBit;
 with MicroBit.Console;
 with MicroBit.Types;
 with MicroBit.Ultrasonic;
+with System;
 
 with Ada.Real_Time; use Ada.Real_Time;
 
@@ -42,6 +43,11 @@ package body Eyes_And_Ears is
 
    -- checks if sensor readings update, keeps track of last time each sensor was updated
    protected Sensor_Timestamps is
+      pragma
+        Priority
+          (System.Default_Priority
+           + 4); --ceiling priority as its used in Safety task
+
       procedure Update_FR;
       procedure Update_FL;
       procedure Update_R;
@@ -111,11 +117,20 @@ package body Eyes_And_Ears is
    end Sensors_Too_Old;
 
    task body Sense_Task is
-      Next_Release : Time := Clock;
-      Period       : constant Time_Span := Milliseconds (100);
+      Next_Release     : Time := Clock;
+      Period           : constant Time_Span := Milliseconds (100);
+      --RTA test
+      Start_Time       : Time;
+      End_Time         : Time;
+      Elapsed          : Time_Span;
+      Max_Elapsed      : Time_Span := Milliseconds (0);
+      Missed_Deadlines : Integer := 0;
+      it               : Integer := 0;
 
    begin
       loop
+         Start_Time := Clock; --RTA test
+
          Distance_FR := Sensor1.Read;
          Sensor_Timestamps.Update_FR;
          Distance_FL := Sensor2.Read;
@@ -125,7 +140,36 @@ package body Eyes_And_Ears is
          Distance_L := Sensor4.Read;
          Sensor_Timestamps.Update_L;
 
+         delay 0.05; -- delay 50ms to allow time for sensors to update
+
+         End_Time := Clock; --RTA test
+         Elapsed := End_Time - Start_Time; --RTA test
+
          Next_Release := Next_Release + Period;
+
+         if End_time > Next_Release then
+            --RTA test
+            Missed_Deadlines := Missed_Deadlines + 1; --RTA test
+
+         end if; --RTA test
+
+         if Elapsed > Max_Elapsed then
+            --RTA test
+            Max_Elapsed := Elapsed; --RTA test
+
+         end if; --RTA test
+
+         it := it + 1; --RTA test
+         if it = 100 then
+            --RTA test
+            MicroBit.Console.Put_Line
+              ("Max Elapsed Time: " & Time_Span'Image (Max_Elapsed));
+            MicroBit.Console.Put_Line
+              ("Missed Deadlines: " & Integer'Image (Missed_Deadlines));
+            it := 0; --RTA test
+
+         end if; --RTA test
+
          delay until Next_Release;
       end loop;
    end Sense_Task;

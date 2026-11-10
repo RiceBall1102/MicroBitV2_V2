@@ -38,7 +38,7 @@ package body Brain is
             Direction := Arms_And_Legs.Rotate_Right;
          end if;
       elsif Left_Collision and Right_Collision then
-      Direction := Arms_And_Legs.Forward;
+         Direction := Arms_And_Legs.Forward;
       elsif Front_Left_Collision then
          Direction := Arms_And_Legs.Rotate_Right;
       elsif Front_Right_Collision then
@@ -68,11 +68,16 @@ package body Brain is
    task body Act_Task is
       Next_Release : Time := Clock;
       Period       : constant Time_Span := Milliseconds (40);
+
+      --RTA test
+
    begin
       loop
+
          declare
             Direction : Arms_And_Legs.Directions;
          begin
+
             Readers_Writers.Read (Direction);
             Arms_And_Legs.Drive (Direction);
          end;

@@ -1,6 +1,6 @@
 with System;
 
-package body safety is
+package Safety is
 
    task Safety_task is
       pragma Priority (System.Default_Priority + 4);

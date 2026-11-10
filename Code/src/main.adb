@@ -2,6 +2,7 @@ with Brain;
 with Eyes_And_Ears;
 with Arms_And_Legs;
 with MicroBit.Console;
+with Safety;
 
 procedure Main is
 begin

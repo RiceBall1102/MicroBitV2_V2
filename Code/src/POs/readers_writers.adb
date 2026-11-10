@@ -12,10 +12,12 @@ package body readers_writers is
       procedure stop_Write;
       procedure Read_Value (Value : out Arms_And_Legs.Directions);
       procedure Write_Value (Value : Arms_And_Legs.Directions);
+      procedure Set_Safety_Stop (Active : Boolean);
    private
       readers           : Natural := 0;
       writers           : Boolean := False;
       Current_Direction : Arms_And_Legs.Directions := Arms_And_Legs.Forward;
+      Safety_Stop       : Boolean := True;
    end control;
 
    procedure Read (Value : out Arms_And_Legs.Directions) is
@@ -32,15 +34,31 @@ package body readers_writers is
       control.stop_Write;
    end Write;
 
+   procedure Set_Safety_Stop (Active : Boolean) is
+   begin
+      control.Set_Safety_Stop (Active);
+   end Set_Safety_Stop;
+
    protected body control is
       procedure Read_Value (Value : out Arms_And_Legs.Directions) is
       begin
-         Value := Current_Direction;
+         if Safety_Stop then
+            Value := Arms_And_Legs.Stop;
+         else
+            Value := Current_Direction;
+         end if;
+
       end Read_Value;
+
       procedure Write_Value (Value : Arms_And_Legs.Directions) is
       begin
          Current_Direction := Value;
       end Write_Value;
+
+      procedure Set_Safety_Stop (Active : Boolean) is
+      begin
+         Safety_Stop := Active;
+      end Set_Safety_Stop;
 
       entry Start_Read when not Writers and Start_Write'Count = 0 is
       begin
