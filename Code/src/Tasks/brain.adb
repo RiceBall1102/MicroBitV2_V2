@@ -27,6 +27,15 @@ package body Brain is
         Check_Distance (Eyes_And_Ears.Right_Distance);
       Left_Collision        : constant Boolean :=
         Check_Distance (Eyes_And_Ears.Left_Distance);
+
+      --RTA test
+      Start_Time       : Time;
+      End_Time         : Time;
+      Elapsed          : Time_Span;
+      Max_Elapsed      : Time_Span := Milliseconds (0);
+      Missed_Deadlines : Integer := 0;
+      it               : Integer := 0;
+
    begin
       if Front_Left_Collision and Front_Right_Collision then
          if Left_Collision and Right_Collision then
@@ -55,11 +64,19 @@ package body Brain is
    end Think;
 
    task body Think_Task is
-      Next_Release : Time := Clock;
-      Period       : constant Time_Span := Milliseconds (50);
+      Next_Release     : Time := Clock;
+      Period           : constant Time_Span := Milliseconds (50);
+      Start_Time       : Time; --RTA test
+      End_Time         : Time; --RTA test
+      Elapsed          : Time_Span; --RTA test
+      Max_Elapsed      : Time_Span := Milliseconds (0); --RTA test
+      Missed_Deadlines : Integer := 0; --RTA test
+      it               : Integer := 0; --RTA test
    begin
       loop
+         Start_Time := Clock; --RTA test
          Think;
+         End_Time := Clock; --RTA test
 
          Next_Release := Next_Release + Period;
          delay until Next_Release;
@@ -95,8 +112,7 @@ package body Brain is
          
          Elapsed := End_Time - Start_Time; --RTA test
 
-   
-
+         Next_Release := Next_Release + Period;
          if End_time > Next_Release then
             --RTA test
             Missed_Deadlines := Missed_Deadlines + 1; --RTA test
@@ -122,6 +138,25 @@ package body Brain is
 
          end if; --RTA test
          
+         delay until Next_Release;
+      end loop;
+   end Think_Task;
+
+   task body Act_Task is
+      Next_Release : Time := Clock;
+      Period       : constant Time_Span := Milliseconds (40);
+
+   begin
+      loop
+
+         declare
+            Direction : Arms_And_Legs.Directions;
+         begin
+            Readers_Writers.Read (Direction);
+            Arms_And_Legs.Drive (Direction);
+         end;
+
+         Next_Release := Next_Release + Period;
          delay until Next_Release;
       end loop;
    end Act_Task;
