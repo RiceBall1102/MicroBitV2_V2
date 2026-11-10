@@ -78,11 +78,27 @@ package body Brain is
          Think;
          End_Time := Clock; --RTA test
 
+         Elapsed := End_Time - Start_Time; --RTA test
+
          Next_Release := Next_Release + Period;
+         if End_time > Next_Release then
+            Missed_Deadlines := Missed_Deadlines + 1;
+         end if;
+         if Elapsed > Max_Elapsed then
+            Max_Elapsed := Elapsed;
+         end if;
+         it := it + 1;
+         if it = 100 then
+            MicroBit.Console.Put_Line
+              ("Max Elapsed Time: " & Time_Span'Image (Max_Elapsed));
+            MicroBit.Console.Put_Line
+              ("Missed Deadlines: " & Integer'Image (Missed_Deadlines));
+            it := 0;
+         end if;
          delay until Next_Release;
       end loop;
    end Think_Task;
-   
+
    task body Act_Task is
       Next_Release : Time := Clock;
       Period       : constant Time_Span := Milliseconds (40);
