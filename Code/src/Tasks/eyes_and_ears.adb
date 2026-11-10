@@ -8,13 +8,10 @@ with Ada.Real_Time; use Ada.Real_Time;
 
 package body Eyes_And_Ears is
 
-   package Sensor1 is new
-     MicroBit.Ultrasonic (MicroBit.MB_P14, MicroBit.MB_P0);
-   package Sensor2 is new
-     MicroBit.Ultrasonic (MicroBit.MB_P15, MicroBit.MB_P12);
+   package Sensor1 is new MicroBit.Ultrasonic (MicroBit.MB_P14, MicroBit.MB_P0);
+   package Sensor2 is new MicroBit.Ultrasonic (MicroBit.MB_P15, MicroBit.MB_P12);
    package Sensor3 is new MicroBit.Ultrasonic (MicroBit.MB_P1, MicroBit.MB_P2);
-   package Sensor4 is new
-     MicroBit.Ultrasonic (MicroBit.MB_P16, MicroBit.MB_P13);
+   package Sensor4 is new MicroBit.Ultrasonic (MicroBit.MB_P16, MicroBit.MB_P13);
 
    Distance_FR : MicroBit.Types.Distance_cm := 0;
    Distance_FL : MicroBit.Types.Distance_cm := 0;
@@ -116,23 +113,30 @@ package body Eyes_And_Ears is
       return Sensor_Timestamps.Too_Old;
    end Sensors_Too_Old;
 
-   task body Sense_Task is
+      task body Sense_Task is
       Next_Release : Time := Clock;
-      Period       : constant Time_Span := Milliseconds (100);
+      Period       : constant Time_Span := Milliseconds (1200);
    begin
       loop
+         begin
+            MicroBit.Console.Put_Line ("Reading FR");
+            Distance_FR := Sensor1.Read;
+            Sensor_Timestamps.Update_FR;
+            MicroBit.Console.Put_Line ("Reading FL");
+            Distance_FL := Sensor2.Read;
+            Sensor_Timestamps.Update_FL;
+            MicroBit.Console.Put_Line ("Reading R");
+            Distance_R := Sensor3.Read;
+            Sensor_Timestamps.Update_R;
+            MicroBit.Console.Put_Line ("Reading L");
+            Distance_L := Sensor4.Read;
+            Sensor_Timestamps.Update_L;
+         exception
+            when others =>
+               MicroBit.Console.Put_Line ("Sense exception!");
+         end;
 
-         Distance_FR := Sensor1.Read;
-         Sensor_Timestamps.Update_FR;
-         Distance_FL := Sensor2.Read;
-         Sensor_Timestamps.Update_FL;
-         Distance_R := Sensor3.Read;
-         Sensor_Timestamps.Update_R;
-         Distance_L := Sensor4.Read;
-         Sensor_Timestamps.Update_L;
-
-         delay 0.05; -- delay 50ms to allow time for sensors to update
-
+         Next_Release := Next_Release + Period;
          delay until Next_Release;
       end loop;
    end Sense_Task;

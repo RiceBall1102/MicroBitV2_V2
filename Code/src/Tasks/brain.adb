@@ -3,6 +3,7 @@ with MicroBit.Types;
 with Eyes_And_Ears;
 with Arms_And_Legs;
 with Readers_Writers;
+with MicroBit.Console;
 
 package body Brain is
 
@@ -82,9 +83,8 @@ package body Brain is
 
          declare
             Direction : Arms_And_Legs.Directions;
-            Start_Time := Clock; --RTA test
          begin
-
+            Start_Time := Clock; --RTA test
             Readers_Writers.Read (Direction);
             Arms_And_Legs.Drive (Direction);
             End_Time := Clock; --RTA test
@@ -112,6 +112,8 @@ package body Brain is
          it := it + 1; --RTA test
          if it = 100 then
             --RTA test
+            microBit.Console.Put_Line
+              ("Act kommmer hit");
             MicroBit.Console.Put_Line
               ("Max Elapsed Time: " & Time_Span'Image (Max_Elapsed));
             MicroBit.Console.Put_Line
@@ -119,6 +121,7 @@ package body Brain is
             it := 0; --RTA test
 
          end if; --RTA test
+         
          delay until Next_Release;
       end loop;
    end Act_Task;
