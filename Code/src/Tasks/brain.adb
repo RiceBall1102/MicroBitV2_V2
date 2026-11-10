@@ -70,19 +70,55 @@ package body Brain is
       Period       : constant Time_Span := Milliseconds (40);
 
       --RTA test
+      Start_Time       : Time;
+      End_Time         : Time;
+      Elapsed          : Time_Span;
+      Max_Elapsed      : Time_Span := Milliseconds (0);
+      Missed_Deadlines : Integer := 0;
+      it               : Integer := 0;
 
    begin
       loop
 
          declare
             Direction : Arms_And_Legs.Directions;
+            Start_Time := Clock; --RTA test
          begin
 
             Readers_Writers.Read (Direction);
             Arms_And_Legs.Drive (Direction);
+            End_Time := Clock; --RTA test
          end;
 
+
          Next_Release := Next_Release + Period;
+         
+         Elapsed := End_Time - Start_Time; --RTA test
+
+   
+
+         if End_time > Next_Release then
+            --RTA test
+            Missed_Deadlines := Missed_Deadlines + 1; --RTA test
+
+         end if; --RTA test
+
+         if Elapsed > Max_Elapsed then
+            --RTA test
+            Max_Elapsed := Elapsed; --RTA test
+
+         end if; --RTA test
+
+         it := it + 1; --RTA test
+         if it = 100 then
+            --RTA test
+            MicroBit.Console.Put_Line
+              ("Max Elapsed Time: " & Time_Span'Image (Max_Elapsed));
+            MicroBit.Console.Put_Line
+              ("Missed Deadlines: " & Integer'Image (Missed_Deadlines));
+            it := 0; --RTA test
+
+         end if; --RTA test
          delay until Next_Release;
       end loop;
    end Act_Task;
