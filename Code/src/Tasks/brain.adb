@@ -64,66 +64,15 @@ package body Brain is
    end Think;
 
    task body Think_Task is
-      Next_Release     : Time := Clock;
-      Period           : constant Time_Span := Milliseconds (50);
-      Start_Time       : Time; --RTA test
-      End_Time         : Time; --RTA test
-      Elapsed          : Time_Span; --RTA test
-      Max_Elapsed      : Time_Span := Milliseconds (0); --RTA test
-      Missed_Deadlines : Integer := 0; --RTA test
-      it               : Integer := 0; --RTA test
+      Next_Release : Time := Clock;
+      Period       : constant Time_Span := Milliseconds (50);
    begin
       loop
-         Start_Time := Clock; --RTA test
          Think;
-         End_Time := Clock; --RTA test
-
-         Elapsed := End_Time - Start_Time; --RTA test
 
          Next_Release := Next_Release + Period;
-         if End_time > Next_Release then
-            --RTA test
-            Missed_Deadlines := Missed_Deadlines + 1; --RTA test
-
-         end if; --RTA test
-
-         if Elapsed > Max_Elapsed then
-            --RTA test
-            Max_Elapsed := Elapsed; --RTA test
-
-         end if; --RTA test
-
-         it := it + 1; --RTA test
-         if it = 100 then
-            --RTA test
-            MicroBit.Console.Put_Line
-              ("Max Elapsed Time: " & Time_Span'Image (Max_Elapsed));
-            MicroBit.Console.Put_Line
-              ("Missed Deadlines: " & Integer'Image (Missed_Deadlines));
-            it := 0; --RTA test
-
-         end if; --RTA test
          delay until Next_Release;
       end loop;
    end Think_Task;
-
-   task body Act_Task is
-      Next_Release : Time := Clock;
-      Period       : constant Time_Span := Milliseconds (40);
-
-   begin
-      loop
-
-         declare
-            Direction : Arms_And_Legs.Directions;
-         begin
-            Readers_Writers.Read (Direction);
-            Arms_And_Legs.Drive (Direction);
-         end;
-
-         Next_Release := Next_Release + Period;
-         delay until Next_Release;
-      end loop;
-   end Act_Task;
 
 end Brain;
