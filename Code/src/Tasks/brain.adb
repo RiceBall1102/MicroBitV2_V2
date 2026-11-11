@@ -64,11 +64,20 @@ package body Brain is
    end Think;
 
    task body Think_Task is
-      Next_Release : Time := Clock;
-      Period       : constant Time_Span := Milliseconds (50);
+      Next_Release     : Time := Clock;
+      Period           : constant Time_Span := Milliseconds (50);
+      Start_Time       : Time; --RTA test
+      End_Time         : Time; --RTA test
+      Elapsed          : Time_Span; --RTA test
+      Max_Elapsed      : Time_Span := Milliseconds (0); --RTA test
+      Missed_Deadlines : Integer := 0; --RTA test
+      it               : Integer := 0; --RTA test
    begin
       loop
          Think;
+         End_Time := Clock; --RTA test
+
+         Elapsed := End_Time - Start_Time; --RTA test
 
          Next_Release := Next_Release + Period;
          delay until Next_Release;
