@@ -14,7 +14,7 @@ package body Brain is
    is
       use type MicroBit.Types.Distance_cm;
    begin
-      return Distance > 0 and Distance < 10;
+      return Distance > 0 and Distance < 15;
    end Check_Distance;
 
    procedure Think is
@@ -27,14 +27,6 @@ package body Brain is
         Check_Distance (Eyes_And_Ears.Right_Distance);
       Left_Collision        : constant Boolean :=
         Check_Distance (Eyes_And_Ears.Left_Distance);
-
-      --RTA test
-      Start_Time       : Time;
-      End_Time         : Time;
-      Elapsed          : Time_Span;
-      Max_Elapsed      : Time_Span := Milliseconds (0);
-      Missed_Deadlines : Integer := 0;
-      it               : Integer := 0;
 
    begin
       if Front_Left_Collision and Front_Right_Collision then
@@ -64,20 +56,12 @@ package body Brain is
    end Think;
 
    task body Think_Task is
-      Next_Release     : Time := Clock;
-      Period           : constant Time_Span := Milliseconds (50);
-      Start_Time       : Time; --RTA test
-      End_Time         : Time; --RTA test
-      Elapsed          : Time_Span; --RTA test
-      Max_Elapsed      : Time_Span := Milliseconds (0); --RTA test
-      Missed_Deadlines : Integer := 0; --RTA test
-      it               : Integer := 0; --RTA test
+      Next_Release : Time := Clock;
+      Period       : constant Time_Span := Milliseconds (50);
+
    begin
       loop
          Think;
-         End_Time := Clock; --RTA test
-
-         Elapsed := End_Time - Start_Time; --RTA test
 
          Next_Release := Next_Release + Period;
          delay until Next_Release;

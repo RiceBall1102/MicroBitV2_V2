@@ -118,21 +118,27 @@ package body Eyes_And_Ears is
 
    task body Sense_Task is
       Next_Release : Time := Clock;
-      Period       : constant Time_Span := Milliseconds (100);
+      Period       : constant Time_Span := Milliseconds (250);
    begin
       loop
 
          Distance_FR := Sensor1.Read;
+         delay 0.01;
          Sensor_Timestamps.Update_FR;
+
          Distance_FL := Sensor2.Read;
+         delay 0.01;
          Sensor_Timestamps.Update_FL;
+
          Distance_R := Sensor3.Read;
+         delay 0.01;
          Sensor_Timestamps.Update_R;
+
          Distance_L := Sensor4.Read;
+         delay 0.01;
          Sensor_Timestamps.Update_L;
 
-         delay 0.05; -- delay 50ms to allow time for sensors to update
-
+         Next_Release := Next_Release + Period;
          delay until Next_Release;
       end loop;
    end Sense_Task;
