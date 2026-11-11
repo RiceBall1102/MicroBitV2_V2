@@ -115,27 +115,25 @@ package body Eyes_And_Ears is
 
       task body Sense_Task is
       Next_Release : Time := Clock;
-      Period       : constant Time_Span := Milliseconds (1200);
+      Period       : constant Time_Span := Milliseconds (100);
    begin
       loop
          begin
-            MicroBit.Console.Put_Line ("Reading FR");
             Distance_FR := Sensor1.Read;
             Sensor_Timestamps.Update_FR;
-            MicroBit.Console.Put_Line ("Reading FL");
             Distance_FL := Sensor2.Read;
             Sensor_Timestamps.Update_FL;
-            MicroBit.Console.Put_Line ("Reading R");
+        
             Distance_R := Sensor3.Read;
             Sensor_Timestamps.Update_R;
-            MicroBit.Console.Put_Line ("Reading L");
+        
             Distance_L := Sensor4.Read;
             Sensor_Timestamps.Update_L;
          exception
             when others =>
                MicroBit.Console.Put_Line ("Sense exception!");
          end;
-
+         
          Next_Release := Next_Release + Period;
          delay until Next_Release;
       end loop;
