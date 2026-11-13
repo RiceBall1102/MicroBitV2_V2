@@ -119,9 +119,9 @@ package body Eyes_And_Ears is
    task body Sense_Task is
       Next_Release : Time := Clock;
       Period       : constant Time_Span := Milliseconds (250);
+
    begin
       loop
-
          Distance_FR := Sensor1.Read;
          delay 0.01;
          Sensor_Timestamps.Update_FR;

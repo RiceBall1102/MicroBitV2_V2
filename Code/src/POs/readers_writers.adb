@@ -13,6 +13,7 @@ package body readers_writers is
       procedure Read_Value (Value : out Arms_And_Legs.Directions);
       procedure Write_Value (Value : Arms_And_Legs.Directions);
       procedure Set_Safety_Stop (Active : Boolean);
+
    private
       readers           : Natural := 0;
       writers           : Boolean := False;
